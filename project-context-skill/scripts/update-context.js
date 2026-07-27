@@ -14,8 +14,8 @@ const { scanAllFiles } = require('./lib/scanner');
 const { readTextFile } = require('./lib/utils');
 const { detectConfigurations, analyzeDirectoryStructure, buildDependencyGraph } = require('./lib/config');
 const {
-  loadProjectRules, loadProjectMemory,
-  generateRulesMd, generateMemoryMd, generateConfigMd, generateModulesMd, generateCodeStyleMd
+  loadRules, loadMemory,
+  generateRulesMd, generateMemoryMd, generateConfigMd, generateModulesMd, generateCodeStyleMd, countModules
 } = require('./lib/generators');
 const { generatePrompt } = require('./lib/prompt');
 const { compressConversation } = require('./lib/compress');
@@ -56,7 +56,7 @@ async function updateContext(projectRoot) {
   fs.writeFileSync(path.join(contextDir, 'config.md'), configMd, 'utf-8');
 
   console.log('  生成模块分析文档...');
-  const modulesMd = generateModulesMd(allFiles, dirStructure);
+  const modulesMd = generateModulesMd(allFiles, dirStructure, contextDir);
   fs.writeFileSync(path.join(contextDir, 'modules.md'), modulesMd, 'utf-8');
 
   console.log('  生成代码风格文档...');
@@ -68,18 +68,20 @@ async function updateContext(projectRoot) {
   fs.writeFileSync(path.join(contextDir, 'dependencies.json'), depJson, 'utf-8');
 
   console.log('  加载用户规则配置...');
-  const rules = loadProjectRules(projectRoot);
-  const rulesMd = generateRulesMd(rules, config);
+  const rulesInfo = loadRules(projectRoot);
+  const rulesMd = generateRulesMd(rulesInfo, config);
   fs.writeFileSync(path.join(contextDir, 'rules.md'), rulesMd, 'utf-8');
 
   console.log('  加载用户记忆配置...');
-  const memory = loadProjectMemory(projectRoot);
-  const memoryMd = generateMemoryMd(memory);
+  const memoryInfo = loadMemory(projectRoot);
+  const memoryMd = generateMemoryMd(memoryInfo);
   fs.writeFileSync(path.join(contextDir, 'memory.md'), memoryMd, 'utf-8');
 
   // 6. 生成索引文件
-  const hasRules = !!rules;
-  const hasMemory = !!memory;
+  const hasGlobalRules = !!rulesInfo.global;
+  const hasProjectRules = !!rulesInfo.project;
+  const hasGlobalMemory = !!memoryInfo.global;
+  const hasProjectMemory = !!memoryInfo.project;
   const indexMd = `# 项目上下文索引
 
 > 生成时间: ${new Date().toISOString()}
@@ -103,19 +105,24 @@ async function updateContext(projectRoot) {
 - **代码文件**: ${allFiles.length} 个
 - **目录数**: ${dirStructure.length} 个
 - **模块数**: ${Object.keys(depGraph).length} 个有依赖关系
-- **自定义规则**: ${hasRules ? '已配置' : '未配置 (.project-rules.json)'}
-- **项目记忆**: ${hasMemory ? '已配置' : '未配置 (.project-memory.json)'}
+- **规则配置**: ${hasGlobalRules ? '全局 ✓' : ''} ${hasProjectRules ? '项目 ✓' : ''} ${!hasGlobalRules && !hasProjectRules ? '未配置' : ''}
+- **记忆配置**: ${hasGlobalMemory ? '全局 ✓' : ''} ${hasProjectMemory ? '项目 ✓' : ''} ${!hasGlobalMemory && !hasProjectMemory ? '未配置' : ''}
 `;
   fs.writeFileSync(path.join(contextDir, 'index.md'), indexMd, 'utf-8');
 
   console.log(`\n✓ 项目分析完成! 文档已生成到: ${contextDir}`);
   console.log(`  - index.md (索引)`);
   console.log(`  - config.md (配置信息)`);
-  console.log(`  - modules.md (模块分析)`);
+  const moduleCount = countModules(allFiles);
+  if (moduleCount > 3) {
+    console.log(`  - modules.md (模块索引, ${moduleCount} 个模块已拆分到 modules/ 目录)`);
+  } else {
+    console.log(`  - modules.md (模块分析)`);
+  }
   console.log(`  - code-style.md (代码风格)`);
   console.log(`  - dependencies.json (依赖关系)`);
-  console.log(`  - rules.md (项目规则) ${hasRules ? '✓ 含用户配置' : ''}`);
-  console.log(`  - memory.md (项目记忆) ${hasMemory ? '✓ 含用户配置' : ''}`);
+  console.log(`  - rules.md (项目规则) ${hasGlobalRules ? '✓ 含全局配置' : ''} ${hasProjectRules ? '✓ 含项目配置' : ''}`);
+  console.log(`  - memory.md (项目记忆) ${hasGlobalMemory ? '✓ 含全局配置' : ''} ${hasProjectMemory ? '✓ 含项目配置' : ''}`);
 
   return { success: true, contextDir };
 }

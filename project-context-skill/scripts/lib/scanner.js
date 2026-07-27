@@ -77,21 +77,62 @@ function extractExports(content, ext) {
 }
 
 /**
- * 从文件内容中提取函数定义
+ * 从文件内容中提取函数定义及其 JSDoc 注释
  * @param {string} content - 文件内容
  * @param {string} ext - 文件扩展名
- * @returns {Array} 函数名称列表（最多 50 条）
+ * @returns {Array} 函数信息对象数组 {name, jsdoc}（最多 50 条）
  */
 function extractFunctions(content, ext) {
   const functions = [];
   if (['.js', '.jsx', '.ts', '.tsx'].includes(ext)) {
-    const fnRegex = /(?:function|const|let|var)\s+(\w+)\s*\(/g;
+    const lines = content.split('\n');
+    // 匹配函数定义：function name( / const name = ( / const name(
+    const fnRegex = /^(?:\s*)(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function|\([^)]*\)\s*=>|(\w+)\s*\([^)]*\)\s*\{?))/gm;
     let match;
     while ((match = fnRegex.exec(content)) !== null) {
-      functions.push(match[1]);
+      const name = match[1] || match[2] || match[3] || null;
+      if (!name || ['if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'class'].includes(name)) continue;
+      
+      // 提取函数上方的 JSDoc 注释
+      const jsdoc = extractJSDocAbove(content, match.index);
+      functions.push({ name, jsdoc });
     }
   }
   return functions.slice(0, 50);
+}
+
+/**
+ * 从指定位置向前查找 JSDoc 注释块
+ * @param {string} content - 文件完整内容
+ * @param {number} position - 函数定义的起始位置
+ * @returns {string} 清理后的 JSDoc 描述文本，无注释则返回空字符串
+ */
+function extractJSDocAbove(content, position) {
+  const before = content.slice(0, position).trimEnd();
+  const jsdocMatch = before.match(/\/\*\*\s*([\s\S]*?)\*\//);
+  if (!jsdocMatch) return '';
+  
+  // 清理 JSDoc 内容：去除标记符号，提取 @returns 或描述文字
+  let jsdoc = jsdocMatch[1]
+    .replace(/\* @param/g, '\n@param')
+    .replace(/\* @returns/g, '\n@returns')
+    .replace(/\* @return/g, '\n@return')
+    .replace(/\*\//, '')
+    .replace(/^\*\s*\/\s*/, '')
+    .replace(/\n\s*\*\s?/g, '\n')
+    .trim();
+  
+  if (!jsdoc) return '';
+  
+  // 提取 @returns 或 @return 后面的描述
+  const returnMatch = jsdoc.match(/@returns?\s*[{:]*\s*(.+?)(?:\n|$)/);
+  if (returnMatch) return returnMatch[1].trim();
+  
+  // 否则取第一行非 @ 开头的描述
+  const firstLine = jsdoc.split('\n')[0].replace(/^@/g, '').trim();
+  if (firstLine) return firstLine;
+  
+  return jsdoc.slice(0, 200);
 }
 
 module.exports = { scanAllFiles, extractImports, extractExports, extractFunctions };

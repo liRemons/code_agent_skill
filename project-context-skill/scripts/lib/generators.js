@@ -7,37 +7,177 @@
 const fs = require('fs');
 const { path, readJsonFile, readTextFile } = require('./utils');
 
+// JSON 配置示例文本
+const jsonExample = {
+  rules: `{
+  "naming": {
+    "variables": "camelCase",
+    "functions": "camelCase",
+    "classes": "PascalCase",
+    "constants": "UPPER_SNAKE_CASE",
+    "files": "kebab-case"
+  },
+  "limits": {
+    "maxFileLength": 500,
+    "maxFunctionLength": 80,
+    "maxLineLength": 120
+  },
+  "git": {
+    "commitFormat": "conventional",
+    "branchPrefix": "feature/"
+  },
+  "codeStyle": {
+    "semi": true,
+    "singleQuote": true,
+    "trailingComma": "es5"
+  },
+  "customRules": [
+    "所有公共函数必须有 JSDoc 注释",
+    "异步操作必须包含错误处理"
+  ]
+}`,
+  memory: `{
+  "language": {
+    "response": "zh",
+    "comments": "zh",
+    "documentation": "zh"
+  },
+  "style": {
+    "responseDetail": "concise",
+    "codeExplanation": "brief"
+  },
+  "project": {
+    "description": "项目简要描述",
+    "architecture": "架构说明",
+    "knownIssues": ["已知问题列表"]
+  },
+  "history": [
+    {
+      "date": "2026-07-27",
+      "decision": "决策内容",
+      "reason": "决策原因"
+    }
+  ]
+}`
+};
+
 /**
- * 从项目根目录加载用户自定义规则配置
- * @param {string} root - 项目根目录
- * @returns {object|null} 规则配置对象，文件不存在返回 null
+ * 获取全局配置目录
+ * @returns {string} 全局配置目录路径
  */
-function loadProjectRules(root) {
-  return readJsonFile(path.join(root, '.project-rules.json'));
+function getGlobalConfigDir() {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (!home) return '';
+  return path.join(home, '.fittencode');
 }
 
 /**
- * 从项目根目录加载用户记忆配置
- * @param {string} root - 项目根目录
- * @returns {object|null} 记忆配置对象，文件不存在返回 null
+ * 深合并两个对象（对象合并，数组拼接）
+ * @param {object} base - 基础对象（优先级低）
+ * @param {object} override - 覆盖对象（优先级高）
+ * @returns {object} 合并后的新对象
  */
-function loadProjectMemory(root) {
-  return readJsonFile(path.join(root, '.project-memory.json'));
+function deepMerge(base, override) {
+  if (!base || !override) return override || base || {};
+  const result = { ...base };
+  for (const key of Object.keys(override)) {
+    const baseVal = result[key];
+    const overVal = override[key];
+    if (Array.isArray(baseVal) && Array.isArray(overVal)) {
+      result[key] = [...baseVal, ...overVal];
+    } else if (typeof baseVal === 'object' && baseVal !== null && typeof overVal === 'object' && overVal !== null && !Array.isArray(overVal)) {
+      result[key] = deepMerge(baseVal, overVal);
+    } else {
+      result[key] = overVal;
+    }
+  }
+  return result;
+}
+
+/**
+ * 加载规则配置（全局 + 项目级，项目级覆盖全局）
+ * 全局路径: ~/.fittencode/.project-rules.json
+ * 项目路径: <project_root>/.project-rules.json
+ * @param {string} root - 项目根目录
+ * @returns {object} 包含 merged, global, project 的对象
+ */
+function loadRules(root) {
+  const globalDir = getGlobalConfigDir();
+  const globalFile = globalDir ? path.join(globalDir, '.project-rules.json') : '';
+  const projectFile = path.join(root, '.project-rules.json');
+
+  const globalRules = globalFile ? readJsonFile(globalFile) : null;
+  const projectRules = readJsonFile(projectFile);
+
+  const merged = deepMerge(globalRules, projectRules);
+
+  return {
+    merged: merged || null,
+    global: globalRules,
+    project: projectRules,
+    globalPath: globalFile || null,
+    projectPath: projectFile
+  };
+}
+
+/**
+ * 加载记忆配置（全局 + 项目级，项目级覆盖全局）
+ * 全局路径: ~/.fittencode/.project-memory.json
+ * 项目路径: <project_root>/.project-memory.json
+ * @param {string} root - 项目根目录
+ * @returns {object} 包含 merged, global, project 的对象
+ */
+function loadMemory(root) {
+  const globalDir = getGlobalConfigDir();
+  const globalFile = globalDir ? path.join(globalDir, '.project-memory.json') : '';
+  const projectFile = path.join(root, '.project-memory.json');
+
+  const globalMemory = globalFile ? readJsonFile(globalFile) : null;
+  const projectMemory = readJsonFile(projectFile);
+
+  const merged = deepMerge(globalMemory, projectMemory);
+
+  return {
+    merged: merged || null,
+    global: globalMemory,
+    project: projectMemory,
+    globalPath: globalFile || null,
+    projectPath: projectFile
+  };
 }
 
 /**
  * 生成项目规则文档 (rules.md)
  * 包含命名约定、代码限制、Git 工作流、代码风格、自定义规则
- * @param {object} rules - 用户自定义规则配置
+ * @param {object} rulesInfo - 包含 merged, global, project, globalPath, projectPath 的对象（由 loadRules 返回）
  * @param {object} config - 自动检测的配置信息
  * @returns {string} Markdown 格式的规则文档
  */
-function generateRulesMd(rules, config) {
+function generateRulesMd(rulesInfo, config) {
+  const { merged: rules, global: globalRules, project: projectRules, globalPath, projectPath } = rulesInfo || {};
+
   let md = '# 项目规则\n\n';
   md += `> 生成时间: ${new Date().toISOString()}\n\n`;
 
+  if (globalRules || projectRules) {
+    md += '## 配置来源\n\n';
+    if (globalRules && globalPath) md += `- **全局配置**: \`${globalPath}\` ✓\n`;
+    else md += `- **全局配置**: 未配置\n`;
+    if (projectRules && projectPath) md += `- **项目配置**: \`${projectPath}\` ✓\n`;
+    else md += `- **项目配置**: 未配置\n`;
+    md += '\n';
+  }
+
   if (!rules) {
-    md += '_暂无自定义规则配置。请在项目根目录创建 `.project-rules.json` 文件。_\n\n';
+    md += '_暂无自定义规则配置。_\n\n';
+    md += '## 配置方式\n\n';
+    md += '创建 `.project-rules.json` 文件进行配置。支持以下两级：\n\n';
+    md += '- **全局配置**: `~/.fittencode/.project-rules.json` (对所有项目生效)\n';
+    md += '- **项目配置**: `<项目根目录>/.project-rules.json` (仅当前项目生效，覆盖全局)\n\n';
+    md += '### JSON 示例\n\n';
+    md += '```json\n';
+    md += jsonExample.rules + '\n';
+    md += '```\n';
   } else {
     if (rules.naming) {
       md += '## 命名约定\n\n';
@@ -74,6 +214,11 @@ function generateRulesMd(rules, config) {
       rules.customRules.forEach(rule => { md += `- ${rule}\n`; });
       md += '\n';
     }
+
+    md += '## JSON 配置示例\n\n';
+    md += '```json\n';
+    md += jsonExample.rules + '\n';
+    md += '```\n';
   }
 
   if (config.linters.length > 0) {
@@ -87,15 +232,34 @@ function generateRulesMd(rules, config) {
 /**
  * 生成项目记忆文档 (memory.md)
  * 包含用户偏好、项目知识、历史决策等
- * @param {object|null} memory - 用户记忆配置对象
+ * @param {object} memoryInfo - 包含 merged, global, project, globalPath, projectPath 的对象（由 loadMemory 返回）
  * @returns {string} Markdown 格式的记忆文档
  */
-function generateMemoryMd(memory) {
+function generateMemoryMd(memoryInfo) {
+  const { merged: memory, global: globalMemory, project: projectMemory, globalPath, projectPath } = memoryInfo || {};
+
   let md = '# 项目记忆\n\n';
   md += `> 生成时间: ${new Date().toISOString()}\n\n`;
 
+  if (globalMemory || projectMemory) {
+    md += '## 配置来源\n\n';
+    if (globalMemory && globalPath) md += `- **全局配置**: \`${globalPath}\` ✓\n`;
+    else md += `- **全局配置**: 未配置\n`;
+    if (projectMemory && projectPath) md += `- **项目配置**: \`${projectPath}\` ✓\n`;
+    else md += `- **项目配置**: 未配置\n`;
+    md += '\n';
+  }
+
   if (!memory) {
-    md += '_暂无项目记忆配置。请在项目根目录创建 `.project-memory.json` 文件。_\n';
+    md += '_暂无项目记忆配置。_\n\n';
+    md += '## 配置方式\n\n';
+    md += '创建 `.project-memory.json` 文件进行配置。支持以下两级：\n\n';
+    md += '- **全局配置**: `~/.fittencode/.project-memory.json` (对所有项目生效)\n';
+    md += '- **项目配置**: `<项目根目录>/.project-memory.json` (仅当前项目生效，覆盖全局)\n\n';
+    md += '### JSON 示例\n\n';
+    md += '```json\n';
+    md += jsonExample.memory + '\n';
+    md += '```\n';
     return md;
   }
 
@@ -129,6 +293,11 @@ function generateMemoryMd(memory) {
       md += `- **原因**: ${decision.reason}\n\n`;
     });
   }
+
+  md += '## JSON 配置示例\n\n';
+  md += '```json\n';
+  md += jsonExample.memory + '\n';
+  md += '```\n';
 
   return md;
 }
@@ -202,15 +371,14 @@ function generateConfigMd(config, root) {
 
 /**
  * 生成模块分析文档 (modules.md)
- * 包含目录结构树、模块详情、文件列表、导出信息等
+ * 当 contextDir 有值时，按模块拆分为 .context/modules/ 下的子文件，modules.md 作为索引
+ * 当 contextDir 为空时，生成单个完整文件（兼容旧用法）
  * @param {Array} allFiles - 所有扫描到的文件信息
  * @param {Array} dirStructure - 目录结构信息
- * @returns {string} Markdown 格式的模块文档
+ * @param {string} [contextDir] - .context/ 目录路径（可选）
+ * @returns {string} Markdown 格式的模块索引文档
  */
-function generateModulesMd(allFiles, dirStructure) {
-  let md = '# 模块分析\n\n';
-  md += `> 生成时间: ${new Date().toISOString()}\n\n`;
-
+function generateModulesMd(allFiles, dirStructure, contextDir) {
   const modules = {};
   for (const file of allFiles) {
     const parts = file.path.split(path.sep);
@@ -224,33 +392,171 @@ function generateModulesMd(allFiles, dirStructure) {
     }
   }
 
+  const shouldSplit = !!contextDir && Object.keys(modules).length > 3;
+
+  if (shouldSplit) {
+    return generateModulesSplit(allFiles, dirStructure, modules, contextDir);
+  }
+
+  // 单文件模式（兼容旧用法）
+  let md = '# 模块分析\n\n';
+  md += `> 生成时间: ${new Date().toISOString()}\n\n`;
+  md += buildModuleIndex(md, modules);
+
   md += '## 目录结构\n\n```tree\n';
   md += buildTree(dirStructure) + '\n```\n\n';
 
   md += '## 模块详情\n\n';
   for (const [moduleName, files] of Object.entries(modules)) {
-    const display = moduleName === '_root' ? '(根目录)' : moduleName;
-    md += `### ${display}\n\n`;
-    md += `- **文件数**: ${files.length}\n`;
-    const totalLines = files.reduce((sum, f) => sum + f.lines, 0);
-    md += `- **总行数**: ${totalLines}\n`;
-    const exts = {};
-    for (const f of files) exts[f.ext] = (exts[f.ext] || 0) + 1;
-    md += `- **文件类型**: ${Object.entries(exts).map(([e, c]) => `${e}: ${c}`).join(', ')}\n\n`;
-    const allExports = [];
-    for (const f of files) allExports.push(...f.exports.map(e => `${f.path}:${e}`));
-    if (allExports.length > 0) {
-      md += '**主要导出**:\n';
-      for (const exp of allExports.slice(0, 20)) md += `- ${exp}\n`;
-      md += '\n';
-    }
-    md += '| 文件 | 行数 | 导出 |\n|------|------|------|\n';
-    for (const f of files.slice(0, 30)) md += `| ${f.path} | ${f.lines} | ${f.exports.slice(0, 3).join(', ') || '-'} |\n`;
-    if (files.length > 30) md += `| ... | 还有 ${files.length - 30} 个文件 |\n`;
-    md += '\n';
+    md += generateModuleSection(moduleName, files);
   }
 
   return md;
+}
+
+/**
+ * 拆分模式：将各模块写入独立子文件，返回索引文件内容
+ */
+function generateModulesSplit(allFiles, dirStructure, modules, contextDir) {
+  const modulesSubDir = path.join(contextDir, 'modules');
+  if (!fs.existsSync(modulesSubDir)) {
+    fs.mkdirSync(modulesSubDir, { recursive: true });
+  }
+
+  // 写入每个模块的子文件
+  for (const [moduleName, files] of Object.entries(modules)) {
+    const section = generateModuleSection(moduleName, files);
+    const fileName = moduleNameToFileName(moduleName);
+    const sectionMd = `# 模块: ${moduleName === '_root' ? '(根目录)' : moduleName}\n\n${section}`;
+    fs.writeFileSync(path.join(modulesSubDir, `${fileName}.md`), sectionMd, 'utf-8');
+  }
+
+  // 生成索引文件
+  let md = '# 模块分析\n\n';
+  md += `> 生成时间: ${new Date().toISOString()}\n`;
+  md += `> 模块数: ${Object.keys(modules).length}（已拆分为子文件）\n\n`;
+
+  md += '## 目录结构\n\n```tree\n';
+  md += buildTree(dirStructure) + '\n```\n\n';
+
+  md += buildModuleIndex('', modules);
+  return md;
+}
+
+/**
+ * 构建模块索引表格（带链接或无链接）
+ */
+function buildModuleIndex(prefix, modules) {
+  let md = prefix;
+  md += '## 模块列表\n\n';
+  md += '| 模块 | 文件数 | 总行数 |\n|------|--------|--------|\n';
+  for (const [moduleName, files] of Object.entries(modules)) {
+    const display = moduleName === '_root' ? '(根目录)' : moduleName;
+    const totalLines = files.reduce((sum, f) => sum + f.lines, 0);
+    const summary = inferModuleSummary(moduleName, files);
+    const summaryShort = summary ? ` (${summary.slice(0, 20)}...)` : '';
+    md += `| [${display}](./modules/${moduleNameToFileName(moduleName)}.md) | ${files.length} | ${totalLines}${summaryShort} |\n`;
+  }
+  md += '\n';
+  return md;
+}
+
+/**
+ * 生成单个模块的详细段落
+ */
+function generateModuleSection(moduleName, files) {
+  const display = moduleName === '_root' ? '(根目录)' : moduleName;
+  let md = `### ${display}\n\n`;
+
+  const summary = inferModuleSummary(moduleName, files);
+  if (summary) md += `> **模块用途**: ${summary}\n\n`;
+
+  md += `- **文件数**: ${files.length}\n`;
+  const totalLines = files.reduce((sum, f) => sum + f.lines, 0);
+  md += `- **总行数**: ${totalLines}\n`;
+  const exts = {};
+  for (const f of files) exts[f.ext] = (exts[f.ext] || 0) + 1;
+  md += `- **文件类型**: ${Object.entries(exts).map(([e, c]) => `${e}: ${c}`).join(', ')}\n`;
+
+  const allFunctions = [];
+  for (const f of files) {
+    if (Array.isArray(f.functions)) {
+      for (const fn of f.functions) {
+        const fnName = typeof fn === 'object' ? fn.name : fn;
+        const fnJSDoc = typeof fn === 'object' ? fn.jsdoc : '';
+        allFunctions.push({ name: fnName, jsdoc: fnJSDoc, file: path.basename(f.path) });
+      }
+    }
+  }
+
+  const functionsWithDocs = allFunctions.filter(fn => fn.jsdoc);
+  if (functionsWithDocs.length > 0) {
+    md += '\n**函数说明**:\n';
+    for (const fn of functionsWithDocs.slice(0, 30)) {
+      md += `- \`${fn.name}\` — ${fn.jsdoc}（${fn.file}）\n`;
+    }
+    md += '\n';
+  }
+
+  const allExports = [];
+  for (const f of files) allExports.push(...f.exports.map(e => `${f.path}:${e}`));
+  if (allExports.length > 0) {
+    md += '**主要导出**:\n';
+    for (const exp of allExports.slice(0, 20)) md += `- ${exp}\n`;
+    md += '\n';
+  }
+
+  md += '| 文件 | 行数 | 导出 |\n|------|------|------|\n';
+  for (const f of files.slice(0, 30)) md += `| ${f.path} | ${f.lines} | ${f.exports.slice(0, 3).join(', ') || '-'} |\n`;
+  if (files.length > 30) md += `| ... | 还有 ${files.length - 30} 个文件 |\n`;
+  md += '\n';
+
+  return md;
+}
+
+/**
+ * 将模块路径转换为安全的文件名
+ * @param {string} moduleName - 模块路径
+ * @returns {string} 安全的文件名（不含扩展名）
+ */
+function moduleNameToFileName(moduleName) {
+  if (moduleName === '_root') return 'root';
+  return moduleName.replace(/[\/\\]+/g, '-');
+}
+
+/**
+ * 根据模块路径和文件内容推断模块用途摘要
+ * @param {string} moduleName - 模块路径
+ * @param {Array} files - 模块中的文件列表
+ * @returns {string} 模块用途描述，无法推断时返回空字符串
+ */
+function inferModuleSummary(moduleName, files) {
+  if (!moduleName || moduleName === '_root') return '项目根目录，包含入口文件和全局配置';
+
+  const parts = moduleName.split(path.sep);
+  const dirNames = parts.map(p => p.toLowerCase());
+  const fileNameStems = files.map(f => path.basename(f.path, path.extname(f.path)).toLowerCase());
+  const hasModel = dirNames.includes('model') || fileNameStems.some(n => ['store', 'model', 'state'].includes(n));
+  const hasPage = dirNames.includes('pages') || dirNames.includes('page') || fileNameStems.some(n => n === 'index');
+  const hasComponent = dirNames.includes('components') || dirNames.includes('component') || fileNameStems.some(n => n.endsWith('component'));
+  const hasApi = fileNameStems.some(n => n === 'server' || n === 'api' || n === 'request');
+  const hasStyle = fileNameStems.some(n => n.endsWith('module')) || files.some(f => ['.less', '.scss', '.sass', '.css'].includes(f.ext));
+  const hasUtil = dirNames.includes('utils') || dirNames.includes('util') || dirNames.includes('helpers') || fileNameStems.some(n => n === 'const' || n === 'helper');
+  const hasAsset = dirNames.includes('assets') || dirNames.includes('static') || dirNames.includes('image') || dirNames.includes('icon');
+
+  // 通用结构描述
+  if (hasPage && hasComponent && hasModel) return '完整功能模块，包含页面、组件和数据层';
+  if (hasPage && hasModel) return '功能页面模块，包含页面组件和数据逻辑';
+  if (hasComponent && hasModel) return '可复用组件库，包含组件和状态管理';
+  if (hasPage) return '页面模块，主要负责 UI 展示和路由';
+  if (hasComponent) return '组件模块，提供可复用的 UI 组件';
+  if (hasModel) return '数据层模块，负责状态管理和 API 交互';
+  if (hasUtil) return '工具函数模块，提供通用辅助方法';
+  if (hasAsset) return '静态资源目录，包含图片、样式等文件';
+  if (hasApi) return 'API 接口模块，负责服务端通信';
+  if (hasStyle) return '样式模块，定义组件样式';
+
+  return '';
 }
 
 /**
@@ -331,7 +637,26 @@ function generateCodeStyleMd(allFiles, config) {
   return md;
 }
 
+/**
+ * 统计模块数量
+ * @param {Array} allFiles - 所有扫描到的文件信息
+ * @returns {number} 模块数量
+ */
+function countModules(allFiles) {
+  const modules = {};
+  for (const file of allFiles) {
+    const parts = file.path.split(path.sep);
+    if (parts.length > 1) {
+      const modulePath = parts.slice(0, -1).join(path.sep);
+      modules[modulePath] = true;
+    } else {
+      modules['_root'] = true;
+    }
+  }
+  return Object.keys(modules).length;
+}
+
 module.exports = {
-  loadProjectRules, loadProjectMemory,
-  generateRulesMd, generateMemoryMd, generateConfigMd, generateModulesMd, generateCodeStyleMd, buildTree
+  loadRules, loadMemory,
+  generateRulesMd, generateMemoryMd, generateConfigMd, generateModulesMd, generateCodeStyleMd, buildTree, countModules
 };
