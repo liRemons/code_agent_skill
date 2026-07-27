@@ -129,61 +129,104 @@ description: 项目上下文管理专家，负责在编码任务中高效获取�
 |------|------|--------|
 | 目录树扫描 | 递归生成项目目录结构 | P0 |
 | 文件分析 | 识别关键配置文件、入口文件 | P0 |
-| 模块摘要 | 为每个模块生成简短描述 | P1 |
-| 依赖检测 | 分析 package.json 等依赖文件 | P1 |
-| 规范提取 | 自动读取 ESLint/Prettier 配置 | P2 |
-| 历史缓存 | 合并已有缓存数据 | P2 |
+| 模块摘要 | 为每个模块生成简短描述 | P0 |
+| 依赖检测 | 分析 package.json 等依赖文件 | P0 |
+| 规范提取 | 自动读取 ESLint/Prettier 配置 | P0 |
+| 代码分析 | 提取 import/export/函数定义 | P0 |
+| 依赖关系图 | 构建模块间引用关系 | P1 |
 
-### 4.2 输出数据结构
+### 4.2 输出文档结构
+
+脚本生成 `.context/` 目录，包含以下文档：
+
+```
+.context/
+├── index.md           # 项目概览索引
+├── config.md          # 配置信息（依赖、构建工具、技术栈、脚本命令）
+├── modules.md         # 模块分析（目录结构、模块详情、导出内容、文件列表）
+├── code-style.md      # 代码风格（语言分布、命名约定、代码组织）
+└── dependencies.json  # 模块间依赖关系图
+```
+
+#### index.md - 项目概览索引
+
+```markdown
+# 项目上下文索引
+
+> 生成时间: {timestamp}
+> 项目路径: {projectRoot}
+
+## 文档列表
+
+| 文件 | 说明 |
+|------|------|
+| [config.md](./config.md) | 配置信息（依赖、构建工具、技术栈） |
+| [modules.md](./modules.md) | 模块分析（目录结构、模块详情、导出内容） |
+| [code-style.md](./code-style.md) | 代码风格（语言分布、命名约定、代码组织） |
+| [dependencies.json](./dependencies.json) | 依赖关系图（模块间引用） |
+
+## 项目概览
+
+- **框架**: {frameworks}
+- **构建工具**: {buildTools}
+- **代码文件**: {codeFilesCount} 个
+- **目录数**: {directoryCount} 个
+- **模块数**: {moduleCount} 个有依赖关系
+```
+
+#### config.md - 配置信息
+
+包含以下内容：
+- 包管理器（npm/yarn/pnpm）
+- TypeScript 配置（strict、target、module）
+- 技术栈（框架、构建工具、代码检查、测试框架）
+- 构建脚本命令表
+- 生产依赖列表
+- 开发依赖列表
+- 配置文件说明
+
+#### modules.md - 模块分析
+
+包含以下内容：
+- 目录结构（树形展示）
+- 每个模块的文件数、总行数、文件类型分布
+- 主要导出内容列表
+- 文件列表（文件、行数、导出）
+- 公共组件、Hooks、工具函数表
+- 复杂子应用详细分析
+
+#### code-style.md - 代码风格
+
+包含以下内容：
+- 语言分布统计
+- 格式化规则（Prettier）
+- 代码规范（ESLint）及关闭/警告规则说明
+- 命名约定（组件、工具、Hook 等）
+- 目录结构模式
+- 代码组织方式
+- 状态管理、HTTP 请求、路径别名、错误处理、SEO、Git 提交规范
+
+#### dependencies.json - 模块间依赖关系图
 
 ```json
 {
-  "meta": {
-    "version": "1.0.0",
-    "generatedAt": "2026-07-24T15:59:45Z",
-    "projectRoot": "/absolute/path/to/project",
-    "cacheExpiry": 86400
+  "project": "项目名称",
+  "description": "模块间依赖关系图",
+  "sharedModules": {
+    "components": { "path": "...", "items": [...] },
+    "axios": { "path": "...", "exports": [...] },
+    "utils": { "path": "...", "items": [...] },
+    "hooks": { "path": "...", "items": [...] }
   },
-  "structure": {
-    "directories": [
-      {
-        "path": "src/components",
-        "depth": 2,
-        "fileCount": 15,
-        "description": "React UI 组件库"
-      }
-    ],
-    "keyFiles": [
-      {
-        "path": "src/index.tsx",
-        "type": "entry",
-        "lineCount": 120,
-        "description": "应用入口文件"
-      }
-    ]
-  },
-  "modules": [
+  "apps": [
     {
-      "name": "auth",
-      "path": "src/modules/auth",
-      "files": ["login.ts", "token.ts", "permissions.ts"],
-      "dependencies": ["crypto", "http"],
-      "description": "认证授权模块"
+      "name": "appName",
+      "description": "应用描述",
+      "hasModel": true,
+      "modelFiles": ["..."],
+      "dependsOn": ["components", "utils"]
     }
-  ],
-  "configurations": {
-    "packageManager": "npm|yarn|pnpm",
-    "typescript": {
-      "strict": true,
-      "target": "ES2020"
-    },
-    "linters": ["eslint", "prettier"],
-    "testFramework": "jest|vitest"
-  },
-  "fileSignatures": {
-    "src/app.ts": "md5_hash_value",
-    "src/main.ts": "md5_hash_value"
-  }
+  ]
 }
 ```
 
@@ -192,37 +235,65 @@ description: 项目上下文管理专家，负责在编码任务中高效获取�
 ```javascript
 // 主流程
 async function updateContext(projectRoot) {
-  const cache = loadCache(projectRoot);
+  const contextDir = path.join(projectRoot, '.context');
+  if (!fs.existsSync(contextDir)) {
+    fs.mkdirSync(contextDir, { recursive: true });
+  }
+
+  // 1. 检测配置
   const config = detectConfigurations(projectRoot);
-  const structure = scanDirectories(projectRoot);
-  const modules = analyzeModules(structure, config);
-  const signatures = generateFileSignatures(structure.keyFiles);
-  
-  // 对比缓存,只输出变更部分
-  const changes = diffCache(cache, { structure, modules, signatures });
-  
-  return {
-    meta: { version, timestamp, projectRoot },
-    ...changes,
-    configurations: config
-  };
+
+  // 2. 扫描所有代码文件
+  const allFiles = scanAllFiles(projectRoot);
+
+  // 3. 分析目录结构
+  const dirStructure = analyzeDirectoryStructure(projectRoot);
+
+  // 4. 构建依赖图
+  const depGraph = buildDependencyGraph(allFiles);
+
+  // 5. 生成文档
+  const indexMd = generateIndexMd(projectRoot, config, allFiles, dirStructure, depGraph);
+  const configMd = generateConfigMd(config, projectRoot);
+  const modulesMd = generateModulesMd(allFiles, dirStructure);
+  const codeStyleMd = generateCodeStyleMd(allFiles, config);
+  const depJson = JSON.stringify(depGraph, null, 2);
+
+  fs.writeFileSync(path.join(contextDir, 'index.md'), indexMd, 'utf-8');
+  fs.writeFileSync(path.join(contextDir, 'config.md'), configMd, 'utf-8');
+  fs.writeFileSync(path.join(contextDir, 'modules.md'), modulesMd, 'utf-8');
+  fs.writeFileSync(path.join(contextDir, 'code-style.md'), codeStyleMd, 'utf-8');
+  fs.writeFileSync(path.join(contextDir, 'dependencies.json'), depJson, 'utf-8');
+
+  return { success: true, contextDir };
 }
 
-// 目录扫描
-function scanDirectories(root, maxDepth = 4) {
-  // 递归扫描,忽略 node_modules,.git,dist 等
-  // 记录目录路径、深度、文件数量
+// 代码文件扫描（提取 import/export/函数）
+function scanAllFiles(root, currentPath = '', results = []) {
+  // 遍历目录，过滤 IGNORE_DIRS
+  // 对代码文件读取内容并提取：
+  //   - imports: import/require 语句
+  //   - exports: export 声明
+  //   - functions: 函数定义
+  return results;
 }
 
-// 模块分析
-function analyzeModules(structure, config) {
-  // 根据目录结构和 import/require 关系
-  // 生成模块依赖图和功能描述
+// 配置检测
+function detectConfigurations(root) {
+  // 检测包管理器、TypeScript、Linter、测试框架
+  // 检测框架（React/Vue/Angular/Next.js 等）
+  // 检测构建工具（Webpack/Vite/Rollup 等）
+  // 读取 package.json 分析依赖
 }
 
-// 文件签名(用于变更检测)
-function generateFileSignatures(files) {
-  // 为关键文件生成 MD5,用于后续比较
+// 目录结构分析
+function analyzeDirectoryStructure(root) {
+  // 递归扫描目录，记录路径、深度、文件数、代码文件数
+}
+
+// 依赖图构建
+function buildDependencyGraph(allFiles) {
+  // 根据 import/require 语句构建模块间引用关系
 }
 ```
 
@@ -230,9 +301,12 @@ function generateFileSignatures(files) {
 
 ```bash
 # 在项目根目录执行
-node path/to/update-context.js
+node project-context-skill/scripts/update-context.js
 
-# 输出结果到 context-store.json
+# 指定项目路径
+node project-context-skill/scripts/update-context.js /path/to/project
+
+# 输出结果到 .context/ 目录
 ```
 
 **注意**: 仅提供 Node.js 脚本，无需 PowerShell 脚本。
