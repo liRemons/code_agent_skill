@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "version": "1.0.0",
+    "generatedAt": "2026-07-27T00:59:56.006Z",
+    "projectRoot": "c:\\Users\\admin\\job\\coding-agent",
+    "cacheExpiry": 86400
+  },
+  "structure": {
+    "directories": [
+      {
+        "path": "project-context-skill",
+        "depth": 1,
+        "fileCount": 4,
+        "description": ""
+      },
+      {
+        "path": "scripts",
+        "depth": 2,
+        "fileCount": 1,
+        "description": ""
+      },
+      {
+        "path": "templates",
+        "depth": 2,
+        "fileCount": 2,
+        "description": ""
+      }
+    ],
+    "keyFiles": []
+  },
+  "modules": [],
+  "configurations": {
+    "packageManager": null,
+    "typescript": null,
+    "linters": [],
+    "testFramework": null
+  },
+  "fileSignatures": {}
+}
