@@ -1,0 +1,23 @@
+{
+  "language": {
+    "response": "zh",
+    "comments": "zh",
+    "documentation": "zh"
+  },
+  "style": {
+    "responseDetail": "concise",
+    "codeExplanation": "brief"
+  },
+  "project": {
+    "description": "项目简要描述",
+    "architecture": "架构说明",
+    "knownIssues": ["已知问题列表"]
+  },
+  "history": [
+    {
+      "date": "2026-07-27",
+      "decision": "决策内容",
+      "reason": "决策原因"
+    }
+  ]
+}

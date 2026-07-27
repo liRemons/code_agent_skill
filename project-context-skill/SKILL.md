@@ -12,17 +12,28 @@ description: 项目上下文管理专家，负责在编码任务中高效获取�
 - 用户提及"项目结构"、"目录树"、"模块分析"、"文件位置"、"代码规范"
 - 用户提及"编码规则"、"查看项目"、"项目上下文"
 - 用户提及"分析项目信息"、"项目分析"、"项目概览"
+- 用户提出修改某个功能、添加或优化新功能、修复 bug 等开发任务时
+- 用户提出帮我修改、优化这段代码时
 - 检测到项目探索类任务
 - 开始多文件操作前
+- 开始修改代码前
+
+### 禁止读取的文件和目录
+- ❌ 禁止读取 `node_modules/` 目录及其子文件
+- ❌ 禁止读取 lock 文件（`package-lock.json`、`yarn.lock`、`pnpm-lock.yaml` 等），仅用于检测包管理器
+- ❌ 禁止读取 `.git/` 目录（除非用户明确要求）
+- ❌ 禁止读取 `dist/`、`build/`、`.next/` 等构建输出目录
+- ❌ 禁止读取二进制文件（`.png`、`.jpg`、`.zip` 等）
 
 ## 工作规则
 
 ### 0. 初始化流程（必须执行）
 当触发本 skill 时，按以下顺序执行：
-1. 使用 `list_files` 检查项目根目录是否存在 `.context/` 文件夹
-2. 如果不存在，使用 `execute_command` 执行 `node project-context-skill/scripts/update-context.js` 生成分析文档
-3. 文档生成成功后，读取 `.context/index.md` 获取项目概览，按需读取其他文档获取详细信息
-4. 如果脚本执行失败，**禁止回退**，必须输出无法执行的原因。如果是权限问题，告知用户或询问用户索取权限
+1. **检查上下文大小**：如果发给大模型的上下文大小（含系统提示、工具定义、对话历史等）token 数超过 60000，先执行对话压缩（见第 9 条规则）
+2. 使用 `list_files` 检查项目根目录是否存在 `.context/` 文件夹
+3. 如果不存在，使用 `execute_command` 执行 `node project-context-skill/scripts/update-context.js` 生成分析文档
+4. 文档生成成功后，读取 `.context/index.md` 获取项目概览，按需读取其他文档获取详细信息。如有 `.context/rules.md` 和 `.context/memory.md`，优先读取以获取项目规则和用户偏好
+5. 如果脚本执行失败，**禁止回退**，必须输出无法执行的原因。如果是权限问题，告知用户或询问用户索取权限
 
 ### 1. 文件读取策略
 - 文件 >500 行 → 使用 readAbstraction=true
@@ -70,8 +81,38 @@ description: 项目上下文管理专家，负责在编码任务中高效获取�
   - `modules.md` - 模块分析（目录结构、模块详情、导出内容、文件列表）
   - `code-style.md` - 代码风格（语言分布、命名约定、代码组织）
   - `dependencies.json` - 模块间依赖关系图
+  - `rules.md` - 项目规则（编码标准、Git 工作流、安全规则、自定义规则）
+  - `memory.md` - 项目记忆（用户偏好、项目知识、历史决策）
 
-### 7. 允许行为
+### 7. 用户配置（Rules & Memory）
+- 项目根目录的 `.project-rules.json` 为自定义编码规则，优先级高于自动检测的规则
+- 项目根目录的 `.project-memory.json` 为项目记忆，包含用户偏好、项目知识、历史决策
+- 每次执行项目分析时，自动读取并合并这两个配置到 `.context/rules.md` 和 `.context/memory.md`
+- 编码时必须遵守 `.project-rules.json` 中定义的规则
+- 回复风格、注释语言等应遵循 `.project-memory.json` 中的用户偏好
+- 配置文件模板位于 `project-context-skill/templates/rules-template.json` 和 `memory-template.json`
+- 配置优先级：用户配置 > 自动检测 > 默认值
+
+### 8. Prompt 生成
+- 用户要求生成项目上下文 prompt 时，执行 `node project-context-skill/scripts/update-context.js --generate-prompt`
+- 支持参数：
+  - `--output <file>` 将 prompt 输出到指定文件
+  - `--include-modules` 包含模块信息
+  - `--include-deps` 包含依赖关系
+  - `--lang en` 使用英文输出，默认使用中文
+- 生成的 prompt 包含：项目结构、技术栈、公共组件、编码规范等，可直接用于 LLM 对话
+
+### 9. 对话压缩
+- **自动触发**：上下文 token 数超过阈值（如 60000）时，主代理应主动执行 `node project-context-skill/scripts/update-context.js --compress --input <对话文件>` 压缩对话
+- **手动触发**：用户也可以手动执行压缩命令
+- 支持参数：
+  - `--input <file>` 指定输入的对话 JSON 文件
+  - `--output <file>` 指定输出文件
+  - `--threshold <n>` 设置 token 数阈值（默认 60000）
+- 压缩策略：保留最近消息 + 关键决策点 + 代码变更记录 + 错误信息，其余按时间分组摘要
+- 压缩后的对话可直接用于继续 LLM 交互，大幅减少 token 消耗
+
+### 10. 允许行为
 - ✅ 用户明确要求时提供 commit message 建议
 - ✅ 帮助用户格式化 commit message
 - ✅ 在用户提交前提供检查清单
